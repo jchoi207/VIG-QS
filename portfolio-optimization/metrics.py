@@ -1,10 +1,9 @@
-# Jonathan Choi
-# 06/14/2024
 import yfinance as yf
 import pandas as pd
 import datetime as dt
 import matplotlib.pyplot as plt
 import numpy as np
+import cvxpy as cp
 
 
 class stock:
@@ -103,6 +102,7 @@ class stock:
         return self.name, self.ticker, self.exp_ret(), self.st_dev(), self.coeff_var(), self.beta()
 
 
+
 def create_df_INDUSTRY(filename: str, start: str, end: str) -> pd.DataFrame:
     """
     Creates a DataFrame with metrics for each stock in the specified industries.
@@ -137,6 +137,7 @@ def create_df_INDUSTRY(filename: str, start: str, end: str) -> pd.DataFrame:
                 list(stock(tickers_dict[industries[i]][j], start, end).all())
             k += 1
     return df
+
 
 
 def create_df(filename: str, start: str, end: str) -> pd.DataFrame:
