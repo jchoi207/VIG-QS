@@ -77,9 +77,8 @@ def optimize(universe: list, start_date: str, end_date: str, min_max_weights: di
     for x, y in zip(universe, opt_weights):
         print(f"{x}: {round(y*100, 3)}%")
 
-    print(f"Expected monthly portfolio returns: { \
-          round(expected_portfolio_return, 2)}%")
-    print(f"Portfolio st.dev: {round(expected_portfolio_variance, 2)}")
+    print(f"\nExpected monthly portfolio returns: {round(expected_portfolio_return, 2)}%")
+    print(f"Portfolio st.dev: {round(expected_portfolio_variance, 2)} \n")
 
     opt_dict = {}
     for i in range(len(universe)):
@@ -124,8 +123,7 @@ def portfolio_performance(opt_dict: dict, start_date: str, end_date: str, princi
         plt.plot(df_prices.index, df_prices[ticker] *
                  principal, label=f'{ticker} Investment', alpha=0.4)
 
-    print(f"Simple Rate of Return: { \
-          round((portfolio_value.iloc[-1]-principal)/principal * 100, 2)}%")
+    print(f"Simple Rate of Return: {round((portfolio_value.iloc[-1]-principal)/principal * 100, 2)}%")
     plt.title(f"Optimal Portfolio Performance w/ Principal {principal}$")
     plt.xlabel("Date")
     plt.ylabel("USD")
