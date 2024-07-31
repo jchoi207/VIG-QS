@@ -3,6 +3,7 @@ import pandas as pd
 import datetime as dt
 import matplotlib.pyplot as plt
 import numpy as np
+import requests
 
 
 class stock:
@@ -10,7 +11,7 @@ class stock:
         """ 
         Initialization
 
-        Params:
+        Args:
             ticker (str): ticker of the security
             start (str): start date for historical data (default is "2024-01-01")
             end (str): end date for historical data (default is "2024-05-30")
@@ -105,7 +106,7 @@ def create_df_INDUSTRY(filename: str, start: str, end: str) -> pd.DataFrame:
     """
     Creates a DataFrame with metrics for each stock in the specified industries.
 
-    Params:
+    Args:
         filename (str): Path to the file containing tickers by industry.
         start (str): Start date for historical data.
         end (str): End date for historical data.
@@ -141,7 +142,7 @@ def create_df(filename: str, start: str, end: str) -> pd.DataFrame:
     """
     Creates a DataFrame with metrics for each stock in the provided file.
 
-    Params:
+    Args:
         filename (str): Path to the file containing tickers.
         start (str): Start date for historical data.
         end (str): End date for historical data.
@@ -168,7 +169,7 @@ def sort(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
     Sorts the DataFrame based on the specified column.
 
-    Params:
+    Args:
         df (pd.DataFrame): DataFrame to be sorted.
         column (str): Column name to sort by.
 
@@ -182,3 +183,93 @@ def sort(df: pd.DataFrame, column: str) -> pd.DataFrame:
 # Replace MY_FILE.txt with your own file containing tickers separated by line breaks
 # print(sort(create_df("MY_FILE.txt",
 #                      "2024-01-01", "2024-06-14"), "StDev").dropna())
+
+
+def get_bs_from_ticker(ticker: str, start: str, end: str, table: bool = True, plot: bool = True, stockholders_equity: bool = False):
+    headers = {'User-Agent': "arnavdey02@gmail.com"}
+
+    all_tickers = requests.get(
+        "https://www.sec.gov/files/company_tickers.json",
+        headers=headers
+    )
+    company_data = pd.DataFrame.from_dict(all_tickers.json(),
+                                          orient='index')
+    company_data['cik_str'] = company_data['cik_str'].astype(str).str.zfill(10)
+
+    try:
+        my_cik = company_data[company_data['ticker']
+                              == ticker.upper()]['cik_str'].iloc[0]
+    except:
+        print(f"Ticker {ticker} not found in database.")
+        return
+
+    root = f'https://data.sec.gov/api/xbrl/companyconcept/CIK{my_cik}/us-gaap'
+
+    urls = {
+        "stockholders_equity": f'{root}/StockholdersEquity.json',
+    }
+
+    if not stockholders_equity:
+        urls.update({
+            "total_assets": f'{root}/Assets.json',
+            "total_liabilities": f'{root}/Liabilities.json',
+            "current_assets": f'{root}/AssetsCurrent.json',
+            "current_liabilities": f'{root}/LiabilitiesCurrent.json',
+            # "revenues": f'{root}/Revenues.json',
+            "net_income_loss": f'{root}/NetIncomeLoss.json'
+        })
+
+    data = {}
+    for metric, url in urls.items():
+        response = requests.get(url, headers=headers)
+        data[metric] = pd.DataFrame.from_dict(response.json()['units']['USD'])
+
+    def process_metric(metric_data, key):
+        metric_data = metric_data[metric_data.form == '10-Q']
+        metric_data = metric_data.reset_index(drop=True)
+        metric_data = metric_data[['end', 'val']]
+        metric_data['val'] = metric_data['val'] / 1e0
+        metric_data.columns = ["Date", f"{str(key)}"]
+        # metric_data.set_index('Date', inplace=True)
+        return metric_data
+    lengths = []
+    for key, value in data.items():
+        data[key] = process_metric(value, key)
+        lengths.append(data[key].shape[0])
+        # data[key] = data[key].reset_index()
+
+    first_key = list(data.keys())[0]
+    merged_df = data[first_key].copy()
+    # print(merged_df)
+    for key in list(data.keys())[1:]:
+        df = data[key]
+        merged_df = pd.merge(merged_df, df, on='Date',
+                             how='outer', suffixes=('', f'_{key}'))
+    merged_df = merged_df.set_index('Date')
+    merged_df = merged_df.ffill().bfill()
+    merged_df = merged_df[~merged_df.index.duplicated(keep='first')]
+
+    pd.set_option('display.float_format', '{:.2e}'.format)
+    # print(f"Balance Sheet Metrics for ticker {ticker}")
+    merged_df.sort_index(axis=1, ascending=True)
+
+    if table:
+        print(merged_df.head(10))
+    if plot:
+        plt.figure(figsize=(10, 8))
+
+        for column in merged_df.columns:
+            plt.plot(merged_df.index, merged_df[column], label=column)
+
+        # Customize the plot
+        plt.title('Financial Metrics Over Time {ticker}')
+        plt.xlabel('Date')
+        plt.ylabel('Value')
+        plt.legend(loc='upper left')
+        plt.grid(True)
+        plt.xticks(rotation=45)  # Rotate labels if necessary
+        plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
+        plt.show()
+    merged_df_date = merged_df[(merged_df.index >= start)
+                               & (merged_df.index <= end)]
+    return merged_df_date, merged_df
