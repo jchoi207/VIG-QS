@@ -1,0 +1,131 @@
+
+---
+title: "Cross sectional model"
+output: pdf_document
+date: "2024-06-13"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+install.packages('systemfit')
+install.packages('splitstackshape')
+
+library ("systemfit")
+library ("splitstackshape")
+
+
+```
+```{r}
+# Z-SCORE CALCULATION FUNCTION - For weighted mean of 0 and std of 1
+
+zscoreweighted <- function (x, wgt, UpperBoundWinsorized, LowerBoundWinsorized) {
+  ## Returns z-scored values
+  x[x == 0] <- NA # Exposure kept to zero.
+  x.mean <- weighted.mean(x,wgt,na.rm=TRUE)
+  x.sd <- sd(x,na.rm=TRUE)
+  x.z <- (x-x.mean) /x.sd
+  x.z <- sapply(x.z, min, UpperBoundWinsorized)
+  x.z <- sapply(x.z, max, LowerBoundWinsorized)
+  x[is.na(x)] <- 0
+  return(x.z)
+}
+```
+
+```{r}
+# Data
+factor_data <- data.frame(read.csv('cross-section-data.csv'))
+factor_data
+```
+```{r}
+#  FORMAT THE ZSCORES TO CREATE STANDARDIZED NORMAL ZSCORES
+
+list_factors <- c('total_assets','total_liabilities','stockholders_equity','current_assets',
+                  'current_liabilities','net_income_loss')
+for (istyle in list_factors) {
+  #print(istyle)
+  zscores_values<- factor_data[,istyle]
+  zscores_new_values<- factor_data[,istyle]
+  ZscoresSum<- 0
+  #print(abs(weighted.mean(zscores_values, factor_data$wgt, na.rm=TRUE)))
+  # ITERATE ZSCORE CALCULATION UNTIL THE ZSCORE DISTRIBUTION HAS A WEIGHTED MEAN OF 0 AND A STDEV OF 1
+  while ( (abs(weighted.mean(zscores_values, factor_data$weight ,na.rm=TRUE)) > 0.0001 | abs(sd(zscores_values,na.rm=TRUE)-1) > 0.0001 ) & ZscoresSum != abs(weighted.mean(zscores_values, factor_data$weight,na.rm=TRUE))) {
+    ZscoresSum <- abs(weighted.mean(zscores_values, factor_data$weight,na.rm=TRUE))
+    zscores_new_values <- zscoreweighted(zscores_values, factor_data$weight, 3, -3)
+    
+    if (abs(weighted.mean(zscores_new_values, factor_data$weight ,na.rm=TRUE) ) < abs(weighted.mean(zscores_values, factor_data$weight, na.rm=TRUE))) {
+      zscores_values = zscores_new_values
+    }
+    print(abs(weighted.mean(zscores_values, factor_data$weight ,na.rm=TRUE)))
+  }
+  
+  factor_data[,istyle] <- zscores_values
+}
+```
+```{r}
+factor_data
+```
+
+```{r}
+#  FORMAT THE DATA TO APPLY DIFFERENT WEIGHTS ON EACH EQUATION
+#  ADD MANY TIMES OVER THE SAME ROWS TO CREATE A WEIGHTED SUR REGRESSION
+
+factor_data$weight = round(factor_data$weight * 100000)
+factor_data_for_fit = expandRows(factor_data, "weight") # Column wgt contains square root of market cap weights
+```
+
+```{r}
+#building formula for regression
+formulaSectorStyleRegression <- as.formula(paste("X..return.from.quarter ~ 1 + ", paste(colnames(factor_data[ ,!(colnames(factor_data) %in% c('Quarter','ticker','Year','stock','stocks','market.cap',"intercept", "X..return.from.quarter", "weight"))]), collapse= "+")))
+
+formulaSectorStyleRegression
+
+#factor_data[] <- lapply(factor_data, function(x) as.numeric(as.character(x)))
+#factor_data <- na.omit(factor_data)
+
+```
+
+```{r}
+head(factor_data)
+```
+
+
+```{r}
+#regression
+CrossSectionalFit <- systemfit(formulaSectorStyleRegression, "SUR", data=factor_data_for_fit,pooled = TRUE, methodResidCov ="noDfCor", residCovWeighted = TRUE )
+
+summary(CrossSectionalFit)
+CrossSectionalFitAtDate <- coef(summary( CrossSectionalFit ))
+```
+
+```{r}
+# extracting factor exposures
+FactorModelResults <- data.frame(list_factors)
+i_factor<- 1
+for(i_factor in 1:length(list_factors)){
+  
+  if (list_factors[i_factor]=="Intercept") {
+     FactorModelResults[i_factor,"FactorReturn"] <- CrossSectionalFitAtDate ["eq1_(Intercept)", "Estimate"] 
+     FactorModelResults[i_factor,"TStat"] <- CrossSectionalFitAtDate ["eq1_(Intercept)", "t value"] 
+     FactorModelResults[i_factor,"PValue"] <- CrossSectionalFitAtDate ["eq1_(Intercept)", "Pr(>|t|)"] 
+     FactorModelResults[i_factor,"Standard Error"] <- CrossSectionalFitAtDate ["eq1_(Intercept)", "Std. Error"]
+  } else {
+     FactorModelResults[i_factor,"FactorReturn"] <- CrossSectionalFitAtDate [paste("eq1","_", list_factors[i_factor],sep=""), "Estimate"] 
+     FactorModelResults[i_factor,"TStat"] <- CrossSectionalFitAtDate [paste("eq1","_", list_factors[i_factor],sep=""), "t value"] 
+     FactorModelResults[i_factor,"PValue"] <- CrossSectionalFitAtDate [paste("eq1","_", list_factors[i_factor],sep=""), "Pr(>|t|)"] 
+     FactorModelResults[i_factor,"Standard Error"] <- CrossSectionalFitAtDate [paste("eq1","_", list_factors[i_factor],sep=""), "Std. Error"]
+  }
+  
+}
+
+```
+
+```{r}
+#factor exposures
+FactorModelResults
+```
+
